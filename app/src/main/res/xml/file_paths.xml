@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <external-files-path 
+        name="roxy_internal_files" 
+        path="." />
+
+    <external-files-path 
+        name="roxy_downloads" 
+        path="Download/" />
+
+    <external-cache-path 
+        name="my_cache" 
+        path="." />
+    <cache-path 
+        name="my_cache_internal" 
+        path="." />
+
+    <external-path 
+        name="external_root" 
+        path="." />
+</paths>

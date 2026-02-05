@@ -1,0 +1,31 @@
+[versions]
+# 核心插件版本
+agp = "8.13.0"
+kotlin = "2.1.0"
+ksp = "2.1.0-1.0.29" # 给 KSP 用的版本
+
+# 依赖库版本（适配 API 36）
+coreKtx = "1.18.0-alpha01"
+appcompat = "1.7.1"
+material = "1.14.0-alpha08"
+constraintlayout = "2.2.1"
+
+# Compose 相关（配合 build.gradle 的 BOM）
+compose-bom = "2024.12.01"
+
+[libraries]
+# 核心库
+androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
+material = { group = "com.google.android.material", name = "material", version.ref = "material" }
+androidx-constraintlayout = { group = "androidx.constraintlayout", name = "constraintlayout", version.ref = "constraintlayout" }
+
+# Compose BOM
+androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "compose-bom" }
+
+[plugins]
+# 核心插件
+android-application = { id = "com.android.application", version.ref = "agp" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" } # 这行必须加上

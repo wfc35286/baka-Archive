@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="xposed_target_packages">
+        <item>com.oplus.games</item>
+    </string-array>
+</resources>
