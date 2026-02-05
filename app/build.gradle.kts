@@ -118,12 +118,12 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
     }
 
     kotlinOptions { 
-        jvmTarget = "17" 
+        jvmTarget = "21" 
     }
 
     buildFeatures { 
@@ -157,12 +157,12 @@ dependencies {
 
     implementation("com.google.android.material:material:1.14.0-alpha09")
     
-    // ⭐ YukiHookAPI 依赖
-    implementation("com.highcapable.yukihookapi:api:1.3.1")
-    ksp("com.highcapable.yukihookapi:ksp-xposed:1.3.1")
+    // ⭐ YukiHookAPI 依赖 (使用 Version Catalog)
+    implementation(libs.yukihook.api)
+    ksp(libs.yukihook.ksp.xposed)
     
     // ⭐ 洛琪希：改用远程 Xposed API 引用
-    compileOnly("de.robv.android.xposed:api:82")
+    compileOnly(libs.xposed.api)
 }
 
 tasks.register("showVersion") {
