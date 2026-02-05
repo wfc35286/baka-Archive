@@ -1,8 +1,6 @@
 name: Build & Release | 编译与发布
 
 on:
-  push:
-    branches: [ "main", "master" ]
   workflow_dispatch:
     inputs:
       build_type:
@@ -82,7 +80,9 @@ jobs:
         if: steps.check_gate.outputs.GATE == 'true'
         id: collect_data
         run: |
-          V_NAME=$(./gradlew -q :app:showVersion | grep 'FINAL_VERSION' | sed 's/FINAL_VERSION://' | xargs)
+          # 修复版本号提取逻辑：使用 cut 分割冒号，精准获取值
+          V_NAME=$(./gradlew -q :app:showVersion | grep 'FINAL_VERSION_NAME' | cut -d':' -f2 | xargs)
+          V_CODE=$(./gradlew -q :app:showVersion | grep 'FINAL_VERSION_CODE' | cut -d':' -f2 | xargs)
           [ -z "$V_NAME" ] && V_NAME="1.0.0.$(date +'%Y%m%d')"
           
           REL_APK="app/build/outputs/apk/release/app-release.apk"
