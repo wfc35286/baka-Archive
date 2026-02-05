@@ -1,90 +1,159 @@
 name: Build & Release | 编译与发布
 
 on:
+  push:
+    branches: [ "main", "master" ]
   workflow_dispatch:
     inputs:
       build_type:
-        description: 'Select Build Type | 选择构建类型 (debug or release)'
+        description: 'Select Build Type | 选择构建类型'
         required: true
-        default: 'release'
+        default: 'release and debug'
         type: choice
         options:
           - debug
           - release
+          - release and debug
+
+permissions:
+  contents: write
 
 jobs:
   build:
     name: Build APK | 编译 APK
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
     steps:
       - name: Checkout Code | 检出代码
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      - name: Check Build Gate | 检查编译开关
+        id: check_gate
+        run: |
+          if [ -f "build_config.ini" ]; then
+              IS_ENABLE=$(grep ENABLE_BUILD build_config.ini | cut -d'=' -f2 | xargs | tr '[:upper:]' '[:lower:]')
+          else
+              IS_ENABLE="true"
+          fi
+          echo "GATE=$IS_ENABLE" >> $GITHUB_OUTPUT
+
       - name: Set up JDK 21 | 设置 JDK 21
+        if: steps.check_gate.outputs.GATE == 'true'
         uses: actions/setup-java@v4
         with:
           java-version: '21'
           distribution: 'temurin'
           cache: gradle
 
+      - name: Extract Changelog | 提取更新日志
+        if: steps.check_gate.outputs.GATE == 'true'
+        run: |
+          PREV_TAG=$(git describe --tags --match "Release-*" --abbrev=0 2>/dev/null || echo "")
+          if [ -z "$PREV_TAG" ]; then
+            LOGS=$(git log --date=format:"%m-%d %H:%M" --pretty=format:"[%ad] %s" -n 15 | grep -vE "chore:|Merge")
+          else
+            LOGS=$(git log ${PREV_TAG}..HEAD --date=format:"%m-%d %H:%M" --pretty=format:"[%ad] %s" | grep -vE "chore:|Merge")
+          fi
+          [ -z "$LOGS" ] && LOGS="性能优化与稳定性提升"
+          echo "CHANGELOG<<EOF" >> $GITHUB_ENV
+          echo "$LOGS" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
       - name: Grant execute permission for gradlew | 赋予 gradlew 执行权限
+        if: steps.check_gate.outputs.GATE == 'true'
         run: chmod +x gradlew
 
       - name: Build with Gradle | 使用 Gradle 编译
+        if: steps.check_gate.outputs.GATE == 'true'
         run: |
-          if [ "${{ github.event.inputs.build_type }}" == "release" ]; then
+          BUILD_TYPE="${{ github.event.inputs.build_type }}"
+          if [ -z "$BUILD_TYPE" ]; then BUILD_TYPE="release and debug"; fi
+          
+          if [ "$BUILD_TYPE" == "release" ]; then
             ./gradlew assembleRelease
-          else
+          elif [ "$BUILD_TYPE" == "debug" ]; then
             ./gradlew assembleDebug
-          fi
-
-      - name: Get Version Info | 获取版本信息
-        id: get_version
-        run: |
-          VERSION_NAME=$(./gradlew :app:showVersion -q | grep "FINAL_VERSION_NAME" | cut -d':' -f2)
-          VERSION_CODE=$(./gradlew :app:showVersion -q | grep "FINAL_VERSION_CODE" | cut -d':' -f2)
-          echo "VERSION_NAME=$VERSION_NAME" >> $GITHUB_OUTPUT
-          echo "VERSION_CODE=$VERSION_CODE" >> $GITHUB_OUTPUT
-          echo "BUILD_TIME=$(date +'%Y%m%d_%H%M%S')" >> $GITHUB_OUTPUT
-
-      - name: Prepare APK for Upload | 准备待上传的 APK
-        run: |
-          mkdir -p release_artifacts
-          if [ "${{ github.event.inputs.build_type }}" == "release" ]; then
-            cp app/build/outputs/apk/release/*.apk release_artifacts/baka_v${{ steps.get_version.outputs.VERSION_NAME }}_release.apk
           else
-            cp app/build/outputs/apk/debug/*.apk release_artifacts/baka_v${{ steps.get_version.outputs.VERSION_NAME }}_debug.apk
+            ./gradlew assembleRelease assembleDebug
           fi
 
-      - name: Create Release and Upload Asset | 创建 Release 并上传资源
-        if: github.event.inputs.build_type == 'release'
+      - name: Collect Build Data | 收集构建数据
+        if: steps.check_gate.outputs.GATE == 'true'
+        id: collect_data
+        run: |
+          V_NAME=$(./gradlew -q :app:showVersion | grep 'FINAL_VERSION' | sed 's/FINAL_VERSION://' | xargs)
+          [ -z "$V_NAME" ] && V_NAME="1.0.0.$(date +'%Y%m%d')"
+          
+          REL_APK="app/build/outputs/apk/release/app-release.apk"
+          DBG_APK="app/build/outputs/apk/debug/app-debug.apk"
+          V_TAG="Release-$V_NAME"
+          
+          echo "V_NAME=$V_NAME" >> $GITHUB_ENV
+          echo "V_TAG=$V_TAG" >> $GITHUB_ENV
+          
+          FILES=""
+          if [ -f "$REL_APK" ]; then
+            REL_SHA=$(sha256sum $REL_APK | cut -d' ' -f1)
+            echo "REL_SHA=$REL_SHA" >> $GITHUB_ENV
+            cp $REL_APK baka_v${V_NAME}_release.apk
+            FILES="baka_v${V_NAME}_release.apk"
+          fi
+          if [ -f "$DBG_APK" ]; then
+            DBG_SHA=$(sha256sum $DBG_APK | cut -d' ' -f1)
+            echo "DBG_SHA=$DBG_SHA" >> $GITHUB_ENV
+            cp $DBG_APK baka_v${V_NAME}_debug.apk
+            if [ -z "$FILES" ]; then FILES="baka_v${V_NAME}_debug.apk"; else FILES="$FILES,baka_v${V_NAME}_debug.apk"; fi
+          fi
+          echo "FILES=$FILES" >> $GITHUB_ENV
+
+      - name: Sync Version to Repo | 同步版本号到仓库
+        if: steps.check_gate.outputs.GATE == 'true' && github.event_name != 'pull_request'
+        run: |
+          git config --global user.name "Manus-Bot"
+          git config --global user.email "manus@ai.com"
+          git add version.properties app/version.properties || true
+          if [ -n "$(git status --porcelain)" ]; then
+            git commit -m "chore: 自动递增版本号至 ${{ env.V_NAME }} [skip ci]"
+            git push origin HEAD:${{ github.ref_name }}
+          fi
+
+      - name: Release to baka-update (Release Only) | 发布至 baka-update (仅 Release)
+        if: steps.check_gate.outputs.GATE == 'true' && env.REL_SHA != ''
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.get_version.outputs.VERSION_NAME }}
-          name: Release v${{ steps.get_version.outputs.VERSION_NAME }} (${{ steps.get_version.outputs.VERSION_CODE }})
+          repository: wfc35286/baka-update 
+          tag_name: ${{ env.V_NAME }}
+          name: "${{ env.V_TAG }}"
           body: |
-            ## 🚀 Auto Build Release | 自动构建发布
-            - **Version Name | 版本名称**: ${{ steps.get_version.outputs.VERSION_NAME }}
-            - **Version Code | 版本代码**: ${{ steps.get_version.outputs.VERSION_CODE }}
-            - **Build Time | 构建时间**: ${{ steps.get_version.outputs.BUILD_TIME }}
-            - **Build Type | 构建类型**: ${{ github.event.inputs.build_type }}
-            
-            > This release was automatically generated by GitHub Actions.
-            > 本次发布由 GitHub Actions 自动生成。
-          files: release_artifacts/*.apk
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            ## 🚀 New Update | 新版本发布
+            📦 **Changelog | 更新内容**
+            ${{ env.CHANGELOG }}
+            ---
+            **Checksum | 校验码 (SHA-256):** `${{ env.REL_SHA }}`
+          files: baka_v${{ env.V_NAME }}_release.apk
+          token: ${{ secrets.MY_BAKA_TOKEN || secrets.GITHUB_TOKEN }}
+          allow_updates: true
+          make_latest: true
 
-      - name: Upload Artifact (Debug) | 上传构建产物 (Debug)
-        if: github.event.inputs.build_type == 'debug'
-        uses: actions/upload-artifact@v4
+      - name: Release to Archive Repo | 发布至归档仓库 (Release + Debug)
+        if: steps.check_gate.outputs.GATE == 'true' && env.FILES != ''
+        uses: softprops/action-gh-release@v2
         with:
-          name: baka-debug-apk
-          path: release_artifacts/*.apk
+          tag_name: ${{ env.V_TAG }}
+          name: "${{ env.V_TAG }} (CI Build)"
+          body: |
+            ## 🔐 Build Archive | 构建归档
+            - **Release SHA256**: `${{ env.REL_SHA }}`
+            - **Debug SHA256**: `${{ env.DBG_SHA }}`
+            
+            📦 **Changelog | 更新内容**
+            ${{ env.CHANGELOG }}
+            
+            *Debug version contains symbols for debugging.*
+            *Debug 版本包含调试符号，仅供排查问题使用。*
+          files: |
+            baka_v${{ env.V_NAME }}_release.apk
+            baka_v${{ env.V_NAME }}_debug.apk
+          token: ${{ secrets.GITHUB_TOKEN }}
+          allow_updates: true
