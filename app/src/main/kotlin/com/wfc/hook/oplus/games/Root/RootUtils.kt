@@ -85,6 +85,7 @@ object RootUtils {
     }
 
     // ========== ✨ 全游戏解锁功能 (Unlock) ==========
+    private const val UNLOCK_CFG_FILE = "$BASE_DIR/unlock_config"
 
     /**
      * 保存全游戏解锁状态
